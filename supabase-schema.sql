@@ -10,7 +10,9 @@ create table if not exists watchlist (
   last_pct        numeric,
   currency        text,
   updated_at      timestamptz,
-  last_alert_date text,                -- YYYY-MM-DD of the last alert (dedup)
+  threshold2_pct  numeric,             -- deeper "strong" drop threshold (optional)
+  last_alert_date text,                -- YYYY-MM-DD of the last heads-up alert
+  last_alert2_date text,               -- YYYY-MM-DD of the last strong alert
   last_alert_pct  numeric,
   ath             numeric,             -- all-time high
   ath_pct         numeric,             -- % from ATH (0 = at/new high)
@@ -31,6 +33,8 @@ alter table watchlist add column if not exists cagr         numeric;
 alter table watchlist add column if not exists asset_type   text;
 alter table watchlist add column if not exists history      jsonb;
 alter table watchlist add column if not exists history_date text;
+alter table watchlist add column if not exists threshold2_pct   numeric;
+alter table watchlist add column if not exists last_alert2_date text;
 
 create table if not exists devices (
   token      text primary key,         -- FCM push token from the browser

@@ -152,8 +152,22 @@ def sb_patch(sb, row_id, body):
         print(f"    [warn] Supabase update failed: {e}")
 
 
-def mark_alerted(sb, row_id, today, change):
-    sb_patch(sb, row_id, {"last_alert_date": today, "last_alert_pct": round(change, 2)})
+def decide_alert(change, threshold, strong, dip_done, strong_done):
+    """
+    Which alert (if any) to fire for a given move. Pure + unit-testable.
+      change      : today's % change (negative = down)
+      threshold   : heads-up drop threshold (magnitude, e.g. 2 => -2%)
+      strong      : deeper drop threshold (magnitude) or None
+      dip_done    : heads-up already sent today?
+      strong_done : strong already sent today?
+    Returns "strong", "dip", or None.
+    """
+    hit_strong = strong is not None and change <= -abs(strong)
+    if hit_strong and not strong_done:
+        return "strong"
+    if change <= -abs(threshold) and not hit_strong and not dip_done:
+        return "dip"
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -451,24 +465,38 @@ def check_once(config, state, alert=True):
         if not alert:
             continue
 
-        if change <= -threshold:
-            # one alert per symbol per day; state lives in Supabase (survives
-            # ephemeral cloud runs) or state.json for local-only runs.
-            use_sb = bool(sb and item.get("id"))
-            already = (item.get("last_alert_date") == today) if use_sb \
-                else (state.get(symbol, {}).get("last_alert_date") == today)
-            if already:
-                continue
+        # Two-tier alerts, deduped per day. State is in Supabase (survives
+        # ephemeral cloud runs) or state.json for local-only runs.
+        use_sb = bool(sb and item.get("id"))
+        st = item if use_sb else state.get(symbol, {})
+        strong_th = item.get("threshold2_pct")
+        strong_th = float(strong_th) if strong_th not in (None, "") else None
 
-            title = f"{label} down {abs(change):.1f}%"
-            body = f"{label} is at {last:.2f}{cur} ({change:+.2f}% vs previous close)."
+        kind = decide_alert(
+            change, threshold, strong_th,
+            dip_done=(st.get("last_alert_date") == today),
+            strong_done=(st.get("last_alert2_date") == today),
+        )
+        if kind:
+            if kind == "strong":
+                title = f"🔻 {label} down {abs(change):.1f}% — big dip"
+                body = f"{label} at {last:.2f}{cur} ({change:+.2f}% vs prev close). Strong buy-the-dip level."
+                fields = ["last_alert2_date", "last_alert_date"]  # also suppress a same-day heads-up
+            else:
+                title = f"{label} down {abs(change):.1f}%"
+                body = f"{label} at {last:.2f}{cur} ({change:+.2f}% vs prev close)."
+                fields = ["last_alert_date"]
+
             delivered = send_push(config, tokens, title, body)
-            print(f"    -> ALERT sent to {delivered} device(s)")
+            print(f"    -> {kind.upper()} alert sent to {delivered} device(s)")
 
             if use_sb:
-                mark_alerted(sb, item["id"], today, change)
+                sb_patch(sb, item["id"], {**{f: today for f in fields}, "last_alert_pct": round(change, 2)})
             else:
-                state[symbol] = {"last_alert_date": today, "last_pct": round(change, 2)}
+                s = state.setdefault(symbol, {})
+                for f in fields:
+                    s[f] = today
+                s["last_alert_pct"] = round(change, 2)
                 save_state(state)
 
     if skipped:

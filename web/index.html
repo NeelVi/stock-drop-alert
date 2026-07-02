@@ -49,6 +49,9 @@
     /* Watchlist */
     h2 { font-size: .78rem; color: var(--muted); text-transform: uppercase;
          letter-spacing: .06em; margin: 22px 2px 8px; }
+    .search { width: 100%; margin-bottom: 10px; }
+    .item.dragging { opacity: .6; }
+    .sortable-ghost { opacity: .3; }
     ul { list-style: none; padding: 0; margin: 0; }
     .item { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px;
             background: var(--card); overflow: hidden; border-left-width: 3px; }
@@ -83,6 +86,12 @@
     .range { display: flex; justify-content: space-between; font-size: .7rem; color: var(--muted); }
     .stats { display: flex; gap: 18px; margin-top: 10px; font-size: .82rem; flex-wrap: wrap; }
     .stats b { color: #e5e7eb; }
+    .alerts { display: flex; gap: 16px; margin-top: 14px; padding-top: 12px;
+              border-top: 1px solid var(--line); flex-wrap: wrap; }
+    .alerts label { font-size: .72rem; color: var(--muted); display: flex;
+                    flex-direction: column; gap: 4px; }
+    .alerts input { width: 90px; }
+    .alerts .strong-lbl { color: var(--red); }
     .empty { color: var(--muted); padding: 16px 4px; text-align: center; }
   </style>
 </head>
@@ -120,12 +129,14 @@
   </div>
 
   <h2>My watchlist</h2>
+  <input id="search" class="search" type="search" placeholder="🔍 Search name or symbol…" autocomplete="off" />
   <ul id="list"><li class="empty">Loading…</li></ul>
 
   <!-- Firebase (push) + Supabase (data) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
   <script src="firebase-config.js"></script>
   <script src="supabase-config.js"></script>
   <script>
@@ -177,13 +188,21 @@
       const raw = $("sym").value.trim().toUpperCase();
       if (!raw) return;
       const th = parseFloat($("th").value);
-      const row = { id: symId(raw), symbol: raw, name: $("nm").value.trim() || raw,
+      const id = symId(raw);
+      const row = { id, symbol: raw, name: $("nm").value.trim() || raw,
                     threshold_pct: isNaN(th) ? null : th };
       const { error } = await sb.from("watchlist").upsert(row);
       if (error) return alert("Could not add: " + error.message);
       $("sym").value = ""; $("nm").value = ""; $("th").value = "";
       $("addForm").setAttribute("hidden", ""); $("addToggle").textContent = "＋ Add a stock / fund";
       load();
+      // Immediately fetch details via the serverless function (best-effort;
+      // the monitor also enriches on its next run if this fails / isn't deployed).
+      setStatus(`Fetching ${raw}…`);
+      fetch(`/api/enrich?symbol=${encodeURIComponent(raw)}&id=${encodeURIComponent(id)}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+        .then(() => { setStatus(`${raw} added.`, "ok"); load(); })
+        .catch(() => setStatus(`${raw} added — details will fill in shortly.`));
     });
 
     async function removeStock(id, name) {
@@ -192,14 +211,39 @@
       await sb.from("watchlist").delete().eq("id", id);
       load();
     }
-    async function saveThreshold(id, val) {
-      const th = parseFloat(val);
-      await sb.from("watchlist").update({ threshold_pct: isNaN(th) ? null : th }).eq("id", id);
+    async function saveNum(id, field, val) {
+      const n = parseFloat(val);
+      await sb.from("watchlist").update({ [field]: isNaN(n) ? null : n }).eq("id", id);
     }
 
     // ---- Rendering ----
     const expanded = new Set();
     let currentRows = [];
+
+    // Card order persists in localStorage (per device — no schema change).
+    const ORDER_KEY = "wlOrder";
+    function applyOrder(rows) {
+      let order = [];
+      try { order = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]"); } catch (_) {}
+      const rank = (id) => { const i = order.indexOf(id); return i < 0 ? 1e9 : i; };
+      return [...rows].sort((a, b) => rank(a.id) - rank(b.id) || (a.symbol < b.symbol ? -1 : 1));
+    }
+    function saveOrder() {
+      const ids = [...$("list").children].map((li) => li.dataset.id).filter(Boolean);
+      localStorage.setItem(ORDER_KEY, JSON.stringify(ids));
+      currentRows = applyOrder(currentRows);
+    }
+
+    let sortable = null;
+    function initSortable() {
+      if (sortable || typeof Sortable === "undefined") return;
+      sortable = new Sortable($("list"), {
+        handle: ".head", animation: 150, delay: 180, delayOnTouchOnly: true,
+        ghostClass: "sortable-ghost", onEnd: saveOrder,
+      });
+    }
+
+    $("search").addEventListener("input", () => renderList(currentRows));
 
     function fmt(n) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
 
@@ -237,15 +281,32 @@
         <div class="stats">
           <span>CAGR${yrs} <b>${cagr}</b></span>
           <span>All-time high <b>${ath}</b></span>
+        </div>
+        <div class="alerts">
+          <label>Heads-up drop %
+            <input class="th1" type="number" step="0.5" min="0" value="${d.threshold_pct ?? ""}" placeholder="def">
+          </label>
+          <label><span class="strong-lbl">Strong drop %</span>
+            <input class="th2" type="number" step="0.5" min="0" value="${d.threshold2_pct ?? ""}" placeholder="off">
+          </label>
         </div>`;
     }
 
     function renderList(rows) {
       const ul = $("list");
-      if (!rows || !rows.length) { ul.innerHTML = '<li class="empty">No stocks yet — tap “Add a stock / fund”.</li>'; return; }
+      const q = $("search").value.trim().toLowerCase();
+      if (sortable) sortable.option("disabled", !!q);  // don't reorder a filtered view
+      const list = q
+        ? (rows || []).filter((d) => (d.name || "").toLowerCase().includes(q) || (d.symbol || "").toLowerCase().includes(q))
+        : (rows || []);
+      if (!list.length) {
+        ul.innerHTML = `<li class="empty">${q ? "No matches for “" + $("search").value.trim() + "”." : "No stocks yet — tap “Add a stock / fund”."}</li>`;
+        return;
+      }
       ul.innerHTML = "";
-      rows.forEach((d) => {
+      list.forEach((d) => {
         const li = document.createElement("li");
+        li.dataset.id = d.id;
         const dailyPct = d.last_pct ?? null;
         const dir = d.last_price == null ? "" : (dailyPct > 0.005 ? "up" : dailyPct < -0.005 ? "down" : "flat");
         li.className = "item" + (dir ? " " + dir : "") + (expanded.has(d.id) ? " open" : "");
@@ -256,22 +317,21 @@
           : `<div class="px">${fmt(d.last_price)}${d.currency ? " " + d.currency : ""}</div>
              <div class="chg ${cls}">${arrow} ${dailyPct >= 0 ? "+" : ""}${(dailyPct ?? 0).toFixed(2)}% today</div>`;
 
+        const thText = `−${d.threshold_pct ?? "def"}%`
+          + (d.threshold2_pct != null ? ` · strong −${d.threshold2_pct}%` : "");
+
         li.innerHTML = `
           <div class="head">
             <span class="chev">▶</span>
             <div class="idcol">
               <div class="sym">${d.name || d.symbol}</div>
-              <div class="sub">${d.symbol} · alert at −${d.threshold_pct ?? "default"}%</div>
+              <div class="sub">${d.symbol} · alert ${thText}</div>
             </div>
             <div class="pricecol">${price}</div>
           </div>
           <div class="meta">
             ${athHtml(d)}
-            <span class="ctrls">
-              <input type="number" step="0.5" min="0" value="${d.threshold_pct ?? ""}" placeholder="def" title="Drop % threshold">
-              <span class="unit">%</span>
-              <button class="del" title="Remove">✕</button>
-            </span>
+            <span class="ctrls"><button class="del" title="Remove">✕</button></span>
           </div>
           ${expanded.has(d.id) ? `<div class="detail">${detailHtml(d)}</div>` : ""}`;
 
@@ -279,10 +339,12 @@
           if (expanded.has(d.id)) expanded.delete(d.id); else expanded.add(d.id);
           renderList(currentRows);
         });
-        const thIn = li.querySelector(".ctrls input");
-        thIn.addEventListener("change", () => saveThreshold(d.id, thIn.value));
-        thIn.addEventListener("click", (e) => e.stopPropagation());
         li.querySelector(".del").addEventListener("click", (e) => { e.stopPropagation(); removeStock(d.id, d.name || d.symbol); });
+        if (expanded.has(d.id)) {
+          const t1 = li.querySelector(".th1"), t2 = li.querySelector(".th2");
+          t1.addEventListener("change", () => saveNum(d.id, "threshold_pct", t1.value));
+          t2.addEventListener("change", () => saveNum(d.id, "threshold2_pct", t2.value));
+        }
         ul.append(li);
       });
     }
@@ -294,8 +356,9 @@
           Check supabase-config.js and that you ran supabase-schema.sql.</li>`;
         return;
       }
-      currentRows = data;
+      currentRows = applyOrder(data);
       renderList(currentRows);
+      initSortable();
     }
 
     sb.channel("wl").on("postgres_changes",
