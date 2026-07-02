@@ -207,11 +207,19 @@ def enrich_history(symbol):
     import yfinance as yf
 
     tkr = yf.Ticker(symbol)
-    hist = tkr.history(period="max", interval="1mo", auto_adjust=False)
+    hist = None
+    for period in ("max", "10y", "5y", "1y"):  # some symbols reject "max"
+        try:
+            h = tkr.history(period=period, interval="1mo", auto_adjust=False)
+        except Exception:
+            h = None
+        if h is not None and len(h) > 1:
+            hist = h
+            break
     meta = getattr(tkr, "history_metadata", {}) or {}
     out = {"ath": None, "cagr": None, "history": [], "asset_type": meta.get("instrumentType")}
 
-    if "Close" not in hist:
+    if hist is None or "Close" not in hist:
         return out
     closes = hist["Close"].dropna()
     if len(closes) == 0:
@@ -258,8 +266,11 @@ def is_market_open(symbol, asset_type=None, now_utc=None):
     close), so they're always checked. FX (=X) is treated as 24/7. Unknown
     exchanges fail OPEN (return True) so we never silently skip alerts.
     """
-    if asset_type and asset_type.upper() == "MUTUALFUND":
-        return True  # NAV updates once a day, often after the equity session
+    at = (asset_type or "").upper()
+    if at == "":
+        return True  # not yet classified — check once so it gets enriched
+    if at in ("MUTUALFUND", "INDEX"):
+        return True  # daily NAV / index: always check (off-hours change ~0)
 
     s = symbol.upper()
     if s.endswith("=X"):
@@ -400,18 +411,17 @@ def check_once(config, state, alert=True):
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             }
 
-            # Refresh long-term stats (ATH / CAGR / chart) once per day.
+            # Refresh long-term stats (ATH / CAGR / chart) once per day. Use
+            # history presence (not ath) to decide staleness, so symbols without
+            # history don't get refetched every run.
             ath = item.get("ath")
-            stale = (item.get("history_date") != today
-                     or ath is None or item.get("history") is None)
-            if stale:
+            if item.get("history_date") != today or item.get("history") is None:
                 try:
                     e = enrich_history(symbol)
                     patch["history_date"] = today
+                    patch["history"] = e["history"]  # [] marks "tried, none available"
                     if e["asset_type"]:
                         patch["asset_type"] = e["asset_type"]
-                    if e["history"]:
-                        patch["history"] = e["history"]
                     if e["cagr"] is not None:
                         patch["cagr"] = e["cagr"]
                     if e["ath"] is not None:
@@ -419,15 +429,20 @@ def check_once(config, state, alert=True):
                 except Exception as ex:
                     print(f"    [warn] history/ATH fetch failed: {ex}")
 
-            # Drawdown from all-time high (0 = at/new high).
-            if ath is None or last >= ath:
+            # Drawdown from all-time high. Only meaningful if we actually have a
+            # historical ATH — otherwise leave it unknown (don't fake a new high).
+            if ath is None:
+                patch["ath_pct"] = None
+                ath_note = "no ATH data"
+            elif last >= ath:
                 ath = round(last, 4)
                 patch["ath"], patch["ath_pct"] = ath, 0.0
+                ath_note = "new high"
             else:
                 patch["ath"] = round(ath, 4)
                 patch["ath_pct"] = round((last / ath - 1) * 100, 2)
+                ath_note = f"{patch['ath_pct']:+.1f}% vs ATH"
 
-            ath_note = "new high" if patch["ath_pct"] == 0.0 else f"{patch['ath_pct']:+.1f}% vs ATH"
             print(f"  {label:<24} : {last:.2f}{cur}  {arrow} {change:+.2f}%  ({ath_note})")
             sb_patch(sb, item["id"], patch)
         else:

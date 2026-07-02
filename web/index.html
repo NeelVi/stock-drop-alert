@@ -168,7 +168,7 @@
     });
 
     // ---- Watchlist CRUD ----
-    const symId = (s) => s.trim().toUpperCase().replace(/[\/#?\[\]]/g, "_");
+    const symId = (s) => s.trim().toUpperCase().replace(/[\/#?\[\]^]/g, "_");
 
     $("add").addEventListener("click", async () => {
       const raw = $("sym").value.trim().toUpperCase();
@@ -216,9 +216,10 @@
     }
 
     function athHtml(d) {
-      if (d.ath_pct == null) return '<span class="athi down">high: pending…</span>';
+      if (d.ath_pct == null)
+        return `<span class="athi down">${d.history_date ? "high: n/a" : "high: pending…"}</span>`;
       if (d.ath_pct >= -0.05) return '<span class="athi high">🏔 At all-time high</span>';
-      return `<span class="athi down">▼ ${Math.abs(d.ath_pct).toFixed(1)}% from all-time high</span>`;
+      return `<span class="athi down">−${Math.abs(d.ath_pct).toFixed(1)}% from all-time high</span>`;
     }
 
     function detailHtml(d) {
@@ -227,10 +228,11 @@
       const last = h.length ? h[h.length - 1].t.slice(0, 4) : "";
       const cagr = d.cagr == null ? "—" : `${d.cagr >= 0 ? "+" : ""}${d.cagr.toFixed(1)}%`;
       const ath = d.ath == null ? "—" : fmt(d.ath) + (d.currency ? " " + d.currency : "");
+      const yrs = (first && last) ? ` (${first}–${last})` : "";
       return `${chartSVG(h)}
         <div class="range"><span>${first}</span><span>${last}</span></div>
         <div class="stats">
-          <span>~10Y CAGR <b>${cagr}</b></span>
+          <span>CAGR${yrs} <b>${cagr}</b></span>
           <span>All-time high <b>${ath}</b></span>
         </div>`;
     }
