@@ -26,6 +26,7 @@ import json
 import os
 import sys
 import time
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -205,6 +206,55 @@ def pct_change(last, prev):
 
 
 # --------------------------------------------------------------------------- #
+# Market-hours gating (per symbol, by Yahoo suffix)
+# --------------------------------------------------------------------------- #
+# Approx *regular* session: (IANA timezone, (open_h, open_m), (close_h, close_m)).
+# Holidays are not modelled — but on a holiday the price equals the previous
+# close, so no drop alert would fire anyway.
+_EXCHANGE_HOURS = {
+    ".NS": ("Asia/Kolkata", (9, 15), (15, 30)),    # India NSE
+    ".BO": ("Asia/Kolkata", (9, 15), (15, 30)),    # India BSE
+    ".L":  ("Europe/London", (8, 0), (16, 30)),    # London
+    ".DE": ("Europe/Berlin", (9, 0), (17, 30)),    # Frankfurt / XETRA
+    ".PA": ("Europe/Paris", (9, 0), (17, 30)),     # Paris
+    ".TO": ("America/Toronto", (9, 30), (16, 0)),  # Toronto
+    ".HK": ("Asia/Hong_Kong", (9, 30), (16, 0)),   # Hong Kong
+    ".T":  ("Asia/Tokyo", (9, 0), (15, 0)),        # Tokyo
+    ".AX": ("Australia/Sydney", (10, 0), (16, 0)), # Australia
+    ".SI": ("Asia/Singapore", (9, 0), (17, 0)),    # Singapore
+}
+_US_HOURS = ("America/New_York", (9, 30), (16, 0))  # default for suffix-less tickers
+
+
+def is_market_open(symbol, now_utc=None):
+    """
+    Approximate 'is this instrument's market open right now?' using weekday +
+    regular exchange hours. Crypto (-USD) and FX (=X) are treated as 24/7.
+    Unknown exchanges fail OPEN (return True) so we never silently skip alerts.
+    """
+    s = symbol.upper()
+    if s.endswith("-USD") or s.endswith("=X"):
+        return True
+
+    tz_name, (oh, om), (ch, cm) = _US_HOURS
+    for suffix, spec in _EXCHANGE_HOURS.items():
+        if s.endswith(suffix):
+            tz_name, (oh, om), (ch, cm) = spec
+            break
+
+    try:
+        now = (now_utc or dt.datetime.now(dt.timezone.utc)).astimezone(ZoneInfo(tz_name))
+    except Exception:
+        return True  # timezone db unavailable -> fail open
+
+    if now.weekday() >= 5:  # Saturday / Sunday
+        return False
+    open_t = now.replace(hour=oh, minute=om, second=0, microsecond=0)
+    close_t = now.replace(hour=ch, minute=cm, second=0, microsecond=0)
+    return open_t <= now <= close_t
+
+
+# --------------------------------------------------------------------------- #
 # Firebase Cloud Messaging (push only)
 # --------------------------------------------------------------------------- #
 _fcm_ready = False
@@ -284,6 +334,7 @@ def send_push(config, tokens, title, body):
 # --------------------------------------------------------------------------- #
 def check_once(config, state, alert=True):
     default_threshold = float(config.get("default_drop_threshold_pct", 3.0))
+    gate = alert and config.get("market_hours_only", True)
     watchlist, sb = get_watchlist(config)
     tokens = get_tokens(config, sb) if alert else []
     today = today_str()
@@ -292,10 +343,15 @@ def check_once(config, state, alert=True):
     print(f"[{dt.datetime.now():%Y-%m-%d %H:%M:%S}] Checking {len(watchlist)} instrument(s) "
           f"(from {src})...")
 
+    skipped = 0
     for item in watchlist:
         symbol = item["symbol"]
         threshold = float(item.get("threshold_pct") or default_threshold)
         label = item.get("name") or symbol
+
+        if gate and not is_market_open(symbol):
+            skipped += 1
+            continue
 
         quote = get_quote(symbol)
         if quote is None:
@@ -333,6 +389,9 @@ def check_once(config, state, alert=True):
             else:
                 state[symbol] = {"last_alert_date": today, "last_pct": round(change, 2)}
                 save_state(state)
+
+    if skipped:
+        print(f"  ({skipped} instrument(s) skipped — market closed)")
 
 
 # --------------------------------------------------------------------------- #
