@@ -51,7 +51,10 @@
          letter-spacing: .06em; margin: 22px 2px 8px; }
     ul { list-style: none; padding: 0; margin: 0; }
     .item { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px;
-            background: var(--card); overflow: hidden; }
+            background: var(--card); overflow: hidden; border-left-width: 3px; }
+    .item.up   { border-left-color: var(--green); }
+    .item.down { border-left-color: var(--red); }
+    .item.flat { border-left-color: var(--muted); }
     .head { display: flex; align-items: center; gap: 10px; padding: 12px; cursor: pointer; }
     .head:hover { background: var(--card2); }
     .chev { color: var(--muted); transition: transform .15s; font-size: .8rem; width: 12px; }
@@ -243,12 +246,15 @@
       ul.innerHTML = "";
       rows.forEach((d) => {
         const li = document.createElement("li");
-        li.className = "item" + (expanded.has(d.id) ? " open" : "");
-
         const dailyPct = d.last_pct ?? null;
+        const dir = d.last_price == null ? "" : (dailyPct > 0.005 ? "up" : dailyPct < -0.005 ? "down" : "flat");
+        li.className = "item" + (dir ? " " + dir : "") + (expanded.has(d.id) ? " open" : "");
+
+        const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "•";
+        const cls = dir === "up" ? "pct-up" : dir === "down" ? "pct-down" : "sub";
         const price = d.last_price == null ? '<span class="sub">waiting…</span>'
           : `<div class="px">${fmt(d.last_price)}${d.currency ? " " + d.currency : ""}</div>
-             <div class="chg ${dailyPct < 0 ? "pct-down" : "pct-up"}">${dailyPct >= 0 ? "+" : ""}${(dailyPct ?? 0).toFixed(2)}% today</div>`;
+             <div class="chg ${cls}">${arrow} ${dailyPct >= 0 ? "+" : ""}${(dailyPct ?? 0).toFixed(2)}% today</div>`;
 
         li.innerHTML = `
           <div class="head">
