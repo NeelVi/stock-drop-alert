@@ -1,0 +1,17 @@
+# True secret — never commit
+serviceAccountKey.json
+
+# Public client config (safe to expose, but ignored by default). If you deploy
+# via a Git-connected Vercel project, un-ignore these so they get committed.
+web/firebase-config.js
+web/supabase-config.js
+
+# Runtime
+state.json
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Vercel local project link
+.vercel/

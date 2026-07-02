@@ -1,0 +1,19 @@
+{
+  "check_interval_minutes": 15,
+  "default_drop_threshold_pct": 3.0,
+  "watchlist": [
+    { "symbol": "AAPL", "name": "Apple", "threshold_pct": 3.0 },
+    { "symbol": "MSFT", "name": "Microsoft" },
+    { "symbol": "RELIANCE.NS", "name": "Reliance (NSE)" },
+    { "symbol": "VOO", "name": "Vanguard S&P 500 ETF", "threshold_pct": 2.0 },
+    { "symbol": "VFINX", "name": "Vanguard 500 Index Fund" }
+  ],
+  "firebase": {
+    "service_account_file": "serviceAccountKey.json"
+  },
+  "supabase": {
+    "url": "https://uprdtmqokcjjprjbmpyn.supabase.co",
+    "anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwcmR0bXFva2NqanByamJtcHluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5NjYyNzAsImV4cCI6MjA5ODU0MjI3MH0.KrfUXJJS1p5qJ8ZVEnoM_rlAyqLbNsqVkTRytxG98Gk"
+  },
+  "fcm_tokens": []
+}

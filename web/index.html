@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stock Drop Alerts</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#111827" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="icon" href="icon.png" />
+  <style>
+    :root { --bg:#0b1220; --card:#111827; --muted:#94a3b8; --line:#1f2937;
+            --red:#ef4444; --green:#22c55e; --blue:#2563eb; --violet:#7c3aed; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+           max-width: 560px; margin: 0 auto; padding: 20px 16px 60px;
+           background: var(--bg); color: #e5e7eb; }
+    h1 { font-size: 1.35rem; margin: 0 0 4px; }
+    h2 { font-size: 1.0rem; color: var(--muted); text-transform: uppercase;
+         letter-spacing: .05em; margin: 26px 0 10px; }
+    .card { background: var(--card); border: 1px solid var(--line);
+            border-radius: 12px; padding: 14px; }
+    button { font-size: .95rem; padding: 10px 16px; border: 0; border-radius: 9px;
+             background: var(--blue); color: #fff; cursor: pointer; font-weight: 600; }
+    button.violet { background: var(--violet); }
+    button.ghost { background: transparent; color: var(--red); border: 1px solid var(--line);
+                   padding: 6px 10px; font-weight: 500; }
+    button:disabled { opacity: .5; cursor: default; }
+    input { font-size: .95rem; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--line);
+            background: #0b1220; color: #e5e7eb; width: 100%; }
+    label { font-size: .75rem; color: var(--muted); display: block; margin: 0 0 3px; }
+    .row { display: flex; gap: 8px; align-items: end; }
+    .row .grow { flex: 1; }
+    .row .w-th { width: 78px; }
+    .status { padding: 9px 12px; border-radius: 9px; margin: 12px 0 0; font-size: .9rem; }
+    .ok  { background: #06281a; color: #86efac; }
+    .err { background: #2a0d0d; color: #fca5a5; }
+    .info{ background: #06223a; color: #93c5fd; }
+    ul { list-style: none; padding: 0; margin: 10px 0 0; }
+    li { display: flex; align-items: center; gap: 10px; padding: 12px 4px;
+         border-top: 1px solid var(--line); }
+    li:first-child { border-top: 0; }
+    .sym { font-weight: 700; }
+    .sub { font-size: .78rem; color: var(--muted); }
+    .price { margin-left: auto; text-align: right; white-space: nowrap; }
+    .pct-up { color: var(--green); } .pct-down { color: var(--red); }
+    .thin { display:flex; align-items:center; gap:6px; }
+    .thin input { width: 62px; text-align: right; padding: 6px 8px; }
+    .empty { color: var(--muted); padding: 14px 4px; }
+    code { background: #0b1220; border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <h1>📉 Stock Drop Alerts</h1>
+  <div class="sub">Get pushed when a stock or fund drops past your threshold (vs. previous close).</div>
+
+  <!-- NOTIFICATIONS -->
+  <h2>Notifications</h2>
+  <div class="card">
+    <div class="row" style="gap:10px;">
+      <button id="install" class="violet" style="display:none;">📲 Install app</button>
+      <button id="enable">🔔 Enable notifications on this device</button>
+    </div>
+    <div id="status" class="status info">Tap “Enable notifications” to receive alerts here.</div>
+  </div>
+
+  <!-- ADD -->
+  <h2>Add a stock / fund</h2>
+  <div class="card">
+    <div class="row">
+      <div class="grow">
+        <label for="sym">Ticker symbol</label>
+        <input id="sym" placeholder="e.g. AAPL, RELIANCE.NS, VFINX" autocapitalize="characters" />
+      </div>
+      <div class="w-th">
+        <label for="th">Drop %</label>
+        <input id="th" type="number" step="0.5" min="0" placeholder="3" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <div class="grow">
+        <label for="nm">Name (optional)</label>
+        <input id="nm" placeholder="e.g. Apple" />
+      </div>
+      <button id="add">Add</button>
+    </div>
+    <div class="sub" style="margin-top:8px;">
+      Symbols use Yahoo Finance format. Find yours at
+      <code>finance.yahoo.com</code>. NSE ends in <code>.NS</code>, BSE <code>.BO</code>,
+      London <code>.L</code>.
+    </div>
+  </div>
+
+  <!-- LIST -->
+  <h2>My watchlist</h2>
+  <div class="card">
+    <ul id="list"><li class="empty">Loading…</li></ul>
+  </div>
+
+  <!-- Firebase SDK (push only) + Supabase (data) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="firebase-config.js"></script>
+  <script src="supabase-config.js"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $("status");
+    const setStatus = (m, c) => { statusEl.textContent = m; statusEl.className = "status " + c; };
+
+    firebase.initializeApp(self.firebaseConfig);
+    const messaging = firebase.messaging();
+    const sb = window.supabase.createClient(self.supabaseUrl, self.supabaseAnonKey);
+
+    // ---- Service worker (needed for install + background push) ----
+    let swReg = null;
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("firebase-messaging-sw.js")
+        .then((r) => (swReg = r))
+        .catch((e) => console.error("SW register failed", e));
+    }
+
+    // ---- Install button ----
+    let deferredPrompt = null;
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault(); deferredPrompt = e; $("install").style.display = "inline-block";
+    });
+    $("install").addEventListener("click", async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt(); await deferredPrompt.userChoice;
+      deferredPrompt = null; $("install").style.display = "none";
+    });
+    window.addEventListener("appinstalled", () => { $("install").style.display = "none"; });
+
+    // ---- Enable notifications: register token straight into Firestore ----
+    $("enable").addEventListener("click", async () => {
+      try {
+        const reg = swReg || await navigator.serviceWorker.register("firebase-messaging-sw.js");
+        if (await Notification.requestPermission() !== "granted") {
+          return setStatus("Notification permission denied.", "err");
+        }
+        const token = await messaging.getToken({ vapidKey: self.vapidKey, serviceWorkerRegistration: reg });
+        if (!token) return setStatus("No token returned — check firebase-config.js / VAPID key.", "err");
+        const { error } = await sb.from("devices").upsert({ token, ua: navigator.userAgent });
+        if (error) throw error;
+        setStatus("✅ This device is registered. You'll get alerts here.", "ok");
+      } catch (e) { setStatus("Error: " + e.message, "err"); console.error(e); }
+    });
+
+    messaging.onMessage((p) => {
+      const n = p.notification || {};
+      new Notification(n.title || "Stock alert", { body: n.body || "", icon: "icon-192.png" });
+    });
+
+    // ---- Watchlist CRUD (Supabase) ----
+    const symId = (s) => s.trim().toUpperCase().replace(/[\/#?\[\]]/g, "_");
+
+    $("add").addEventListener("click", async () => {
+      const raw = $("sym").value.trim().toUpperCase();
+      if (!raw) return;
+      const th = parseFloat($("th").value);
+      const row = {
+        id: symId(raw),
+        symbol: raw,
+        name: $("nm").value.trim() || raw,
+        threshold_pct: isNaN(th) ? null : th
+      };
+      const { error } = await sb.from("watchlist").upsert(row);
+      if (error) return alert("Could not add: " + error.message);
+      $("sym").value = ""; $("nm").value = ""; $("th").value = "";
+      load();
+    });
+
+    async function removeStock(id, name) {
+      if (!confirm("Remove " + name + "?")) return;
+      await sb.from("watchlist").delete().eq("id", id);
+      load();
+    }
+    async function saveThreshold(id, val) {
+      const th = parseFloat(val);
+      await sb.from("watchlist").update({ threshold_pct: isNaN(th) ? null : th }).eq("id", id);
+    }
+
+    // ---- Render ----
+    function priceHtml(d) {
+      if (d.last_price == null) return '<span class="sub">waiting for monitor…</span>';
+      const pct = d.last_pct ?? 0;
+      const cls = pct < 0 ? "pct-down" : "pct-up";
+      const cur = d.currency ? " " + d.currency : "";
+      return `<div>${Number(d.last_price).toFixed(2)}${cur}</div>
+              <div class="sub ${cls}">${pct >= 0 ? "+" : ""}${Number(pct).toFixed(2)}%</div>`;
+    }
+
+    function renderList(rows) {
+      const ul = $("list");
+      if (!rows || !rows.length) {
+        ul.innerHTML = '<li class="empty">No stocks yet — add one above.</li>'; return;
+      }
+      ul.innerHTML = "";
+      rows.forEach((d) => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <div>
+            <div class="sym">${d.name || d.symbol}</div>
+            <div class="sub">${d.symbol} · alert at −${(d.threshold_pct ?? "default")}%</div>
+          </div>
+          <div class="price">${priceHtml(d)}</div>`;
+        const controls = document.createElement("div");
+        controls.className = "thin";
+        const thIn = document.createElement("input");
+        thIn.type = "number"; thIn.step = "0.5"; thIn.min = "0";
+        thIn.value = d.threshold_pct ?? ""; thIn.title = "Drop % threshold";
+        thIn.placeholder = "def";
+        thIn.addEventListener("change", () => saveThreshold(d.id, thIn.value));
+        const del = document.createElement("button");
+        del.className = "ghost"; del.textContent = "✕";
+        del.addEventListener("click", () => removeStock(d.id, d.name || d.symbol));
+        controls.append(thIn, del);
+        li.append(controls);
+        ul.append(li);
+      });
+    }
+
+    async function load() {
+      const { data, error } = await sb.from("watchlist").select("*").order("symbol");
+      if (error) {
+        $("list").innerHTML = `<li class="empty">Can't load watchlist: ${error.message}.<br>
+          Check supabase-config.js and that you ran supabase-schema.sql.</li>`;
+        return;
+      }
+      renderList(data);
+    }
+
+    // Realtime: reload whenever the watchlist changes (or monitor writes prices).
+    sb.channel("wl")
+      .on("postgres_changes", { event: "*", schema: "public", table: "watchlist" }, load)
+      .subscribe();
+    load();
+  </script>
+</body>
+</html>
