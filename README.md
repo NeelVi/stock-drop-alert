@@ -166,10 +166,31 @@ You get **at most one alert per instrument per day** so a slow-bleeding stock
 won't spam you (that "already alerted" flag is stored in Supabase, so it works
 even across cloud runs).
 
-### Option A — In the cloud, always on (recommended) ☁️
+### Option A — Vercel endpoint + free cron pinger (recommended) ☁️
 
-Your PC doesn't need to be running. **GitHub Actions** runs the check every 15
-minutes on GitHub's servers — free, no credit card.
+The most reliable free way to get true ~15-min checks. A serverless endpoint
+`/api/check` runs the whole monitor (quotes, ATH refresh, two-tier alerts, FCM,
+per-day dedup) and **self-gates by market hours**, so it's safe to ping around
+the clock. A free external cron service pings it every 15 minutes.
+
+1. It deploys automatically with the app (`npx vercel --prod`). It needs these
+   Vercel env vars (**Project → Settings → Environment Variables**, Production):
+   `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `FIREBASE_SERVICE_ACCOUNT` (the whole
+   service-account JSON), and `CHECK_KEY` (any random string).
+2. Sign up at **cron-job.org** (free, no card). Create a cron job:
+   - URL: `https://YOUR-APP.vercel.app/api/check?key=YOUR_CHECK_KEY`
+   - Schedule: every 15 minutes.
+3. Done — it runs 24/7 and only acts during market hours. `?key=` keeps randoms
+   from triggering it.
+
+> Why not rely on GitHub's schedule: GitHub throttles scheduled workflows heavily
+> on free/public repos — a `*/15` cron often runs only every 1–2 hours, which
+> misses intraday dips. Option B is kept as a coarse backup.
+
+### Option B — GitHub Actions (coarse backup) ☁️
+
+Also runs in the cloud, but on GitHub's throttled schedule (often ~every 1–2h,
+not 15 min). Fine as redundancy; not your primary signal.
 
 1. Put this project in a **GitHub repo** and push it:
    ```powershell
@@ -195,7 +216,7 @@ The schedule lives in [`.github/workflows/monitor.yml`](.github/workflows/monito
 > GitHub disables scheduled workflows after ~60 days with no repo activity — just
 > push a commit occasionally, or re-enable it from the Actions tab.
 
-### Option B — On your PC
+### Option C — On your PC (manual / testing)
 
 ```powershell
 python monitor.py            # continuous, checks every check_interval_minutes
