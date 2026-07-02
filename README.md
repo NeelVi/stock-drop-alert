@@ -225,3 +225,8 @@ trigger Daily, repeat every 15 min → action *Start a program*:
   and `supabase-config.js` values are public client config by design.
 - Data lives in Supabase; Firestore is **not** used (that's the part that now
   requires a credit card).
+- **Market-hours gating** (`"market_hours_only": true` in `config.json`): during
+  alert runs, a symbol is skipped when its exchange is closed — decided per symbol
+  by its Yahoo suffix (`.NS`, `.L`, …), weekday, and regular hours. Crypto (`-USD`)
+  and FX (`=X`) are treated as 24/7; unknown exchanges are always checked. Set it
+  to `false` to check around the clock. (`--list` always shows every symbol.)
