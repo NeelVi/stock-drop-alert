@@ -12,12 +12,25 @@ create table if not exists watchlist (
   updated_at      timestamptz,
   last_alert_date text,                -- YYYY-MM-DD of the last alert (dedup)
   last_alert_pct  numeric,
+  ath             numeric,             -- all-time high
+  ath_pct         numeric,             -- % from ATH (0 = at/new high)
+  cagr            numeric,             -- ~10y compound annual growth (%)
+  asset_type      text,               -- EQUITY / ETF / MUTUALFUND / ...
+  history         jsonb,               -- monthly close series for the chart
+  history_date    text,                -- YYYY-MM-DD the stats were last refreshed
   created_at      timestamptz default now()
 );
 
--- If you created the table before these columns existed, add them:
+-- If you created the table before these columns existed, add them (safe to
+-- re-run):
 alter table watchlist add column if not exists last_alert_date text;
 alter table watchlist add column if not exists last_alert_pct  numeric;
+alter table watchlist add column if not exists ath          numeric;
+alter table watchlist add column if not exists ath_pct      numeric;
+alter table watchlist add column if not exists cagr         numeric;
+alter table watchlist add column if not exists asset_type   text;
+alter table watchlist add column if not exists history      jsonb;
+alter table watchlist add column if not exists history_date text;
 
 create table if not exists devices (
   token      text primary key,         -- FCM push token from the browser

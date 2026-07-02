@@ -152,15 +152,6 @@ def sb_patch(sb, row_id, body):
         print(f"    [warn] Supabase update failed: {e}")
 
 
-def write_price(sb, row_id, last, change, currency):
-    sb_patch(sb, row_id, {
-        "last_price": round(last, 4),
-        "last_pct": round(change, 2),
-        "currency": currency,
-        "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-    })
-
-
 def mark_alerted(sb, row_id, today, change):
     sb_patch(sb, row_id, {"last_alert_date": today, "last_alert_pct": round(change, 2)})
 
@@ -205,6 +196,40 @@ def pct_change(last, prev):
     return (last - prev) / prev * 100.0 if prev else 0.0
 
 
+def enrich_history(symbol):
+    """
+    Long-term stats, refreshed once per day:
+      • ath        – all-time high (max monthly close available)
+      • cagr       – compound annual growth over the charted span (%)
+      • history    – compact monthly close series (~10y) for the chart
+      • asset_type – EQUITY / ETF / MUTUALFUND / ... (drives gating + display)
+    """
+    import yfinance as yf
+
+    tkr = yf.Ticker(symbol)
+    hist = tkr.history(period="max", interval="1mo", auto_adjust=False)
+    meta = getattr(tkr, "history_metadata", {}) or {}
+    out = {"ath": None, "cagr": None, "history": [], "asset_type": meta.get("instrumentType")}
+
+    if "Close" not in hist:
+        return out
+    closes = hist["Close"].dropna()
+    if len(closes) == 0:
+        return out
+
+    out["ath"] = round(float(closes.max()), 4)
+    series = closes.tail(120)  # ~10 years of monthly closes
+    out["history"] = [
+        {"t": ts.strftime("%Y-%m"), "c": round(float(c), 4)} for ts, c in series.items()
+    ]
+    if len(series) >= 2 and float(series.iloc[0]) > 0:
+        start, end = float(series.iloc[0]), float(series.iloc[-1])
+        years = (series.index[-1] - series.index[0]).days / 365.25
+        if years > 0:
+            out["cagr"] = round(((end / start) ** (1 / years) - 1) * 100, 2)
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Market-hours gating (per symbol, by Yahoo suffix)
 # --------------------------------------------------------------------------- #
@@ -226,14 +251,18 @@ _EXCHANGE_HOURS = {
 _US_HOURS = ("America/New_York", (9, 30), (16, 0))  # default for suffix-less tickers
 
 
-def is_market_open(symbol, now_utc=None):
+def is_market_open(symbol, asset_type=None, now_utc=None):
     """
     Approximate 'is this instrument's market open right now?' using weekday +
-    regular exchange hours. Crypto (-USD) and FX (=X) are treated as 24/7.
-    Unknown exchanges fail OPEN (return True) so we never silently skip alerts.
+    regular exchange hours. Mutual funds price once daily (NAV posts after
+    close), so they're always checked. FX (=X) is treated as 24/7. Unknown
+    exchanges fail OPEN (return True) so we never silently skip alerts.
     """
+    if asset_type and asset_type.upper() == "MUTUALFUND":
+        return True  # NAV updates once a day, often after the equity session
+
     s = symbol.upper()
-    if s.endswith("-USD") or s.endswith("=X"):
+    if s.endswith("=X"):
         return True
 
     tz_name, (oh, om), (ch, cm) = _US_HOURS
@@ -349,7 +378,7 @@ def check_once(config, state, alert=True):
         threshold = float(item.get("threshold_pct") or default_threshold)
         label = item.get("name") or symbol
 
-        if gate and not is_market_open(symbol):
+        if gate and not is_market_open(symbol, item.get("asset_type")):
             skipped += 1
             continue
 
@@ -362,10 +391,47 @@ def check_once(config, state, alert=True):
         change = pct_change(last, prev)
         cur = f" {currency}" if currency else ""
         arrow = "v" if change < 0 else "^"
-        print(f"  {label:<24} : {last:.2f}{cur}  {arrow} {change:+.2f}%  (thr -{threshold:.1f}%)")
 
         if sb and item.get("id"):
-            write_price(sb, item["id"], last, change, currency)
+            patch = {
+                "last_price": round(last, 4),
+                "last_pct": round(change, 2),
+                "currency": currency,
+                "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }
+
+            # Refresh long-term stats (ATH / CAGR / chart) once per day.
+            ath = item.get("ath")
+            stale = (item.get("history_date") != today
+                     or ath is None or item.get("history") is None)
+            if stale:
+                try:
+                    e = enrich_history(symbol)
+                    patch["history_date"] = today
+                    if e["asset_type"]:
+                        patch["asset_type"] = e["asset_type"]
+                    if e["history"]:
+                        patch["history"] = e["history"]
+                    if e["cagr"] is not None:
+                        patch["cagr"] = e["cagr"]
+                    if e["ath"] is not None:
+                        ath = e["ath"] if ath is None else max(ath, e["ath"])
+                except Exception as ex:
+                    print(f"    [warn] history/ATH fetch failed: {ex}")
+
+            # Drawdown from all-time high (0 = at/new high).
+            if ath is None or last >= ath:
+                ath = round(last, 4)
+                patch["ath"], patch["ath_pct"] = ath, 0.0
+            else:
+                patch["ath"] = round(ath, 4)
+                patch["ath_pct"] = round((last / ath - 1) * 100, 2)
+
+            ath_note = "new high" if patch["ath_pct"] == 0.0 else f"{patch['ath_pct']:+.1f}% vs ATH"
+            print(f"  {label:<24} : {last:.2f}{cur}  {arrow} {change:+.2f}%  ({ath_note})")
+            sb_patch(sb, item["id"], patch)
+        else:
+            print(f"  {label:<24} : {last:.2f}{cur}  {arrow} {change:+.2f}%  (thr -{threshold:.1f}%)")
 
         if not alert:
             continue

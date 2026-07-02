@@ -5,68 +5,93 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stock Drop Alerts</title>
   <link rel="manifest" href="manifest.json" />
-  <meta name="theme-color" content="#111827" />
+  <meta name="theme-color" content="#0b1220" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="icon" href="icon.png" />
   <style>
-    :root { --bg:#0b1220; --card:#111827; --muted:#94a3b8; --line:#1f2937;
-            --red:#ef4444; --green:#22c55e; --blue:#2563eb; --violet:#7c3aed; }
+    :root { --bg:#0b1220; --card:#111827; --card2:#0e1626; --muted:#94a3b8;
+            --line:#1f2937; --red:#ef4444; --green:#22c55e; --blue:#2563eb;
+            --violet:#7c3aed; --amber:#f59e0b; }
     * { box-sizing: border-box; }
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-           max-width: 560px; margin: 0 auto; padding: 20px 16px 60px;
+           max-width: 620px; margin: 0 auto; padding: 14px 14px 60px;
            background: var(--bg); color: #e5e7eb; }
-    h1 { font-size: 1.35rem; margin: 0 0 4px; }
-    h2 { font-size: 1.0rem; color: var(--muted); text-transform: uppercase;
-         letter-spacing: .05em; margin: 26px 0 10px; }
-    .card { background: var(--card); border: 1px solid var(--line);
-            border-radius: 12px; padding: 14px; }
-    button { font-size: .95rem; padding: 10px 16px; border: 0; border-radius: 9px;
-             background: var(--blue); color: #fff; cursor: pointer; font-weight: 600; }
-    button.violet { background: var(--violet); }
-    button.ghost { background: transparent; color: var(--red); border: 1px solid var(--line);
-                   padding: 6px 10px; font-weight: 500; }
-    button:disabled { opacity: .5; cursor: default; }
-    input { font-size: .95rem; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--line);
-            background: #0b1220; color: #e5e7eb; width: 100%; }
-    label { font-size: .75rem; color: var(--muted); display: block; margin: 0 0 3px; }
+
+    /* Header — compact, notifications is just a bell */
+    .topbar { display: flex; align-items: center; gap: 10px; }
+    .topbar h1 { font-size: 1.2rem; margin: 0; flex: 1; }
+    .bell { font-size: 1rem; padding: 8px 12px; border: 1px solid var(--line);
+            border-radius: 999px; background: var(--card); color: #e5e7eb;
+            cursor: pointer; white-space: nowrap; }
+    .bell.on { background: #06281a; border-color: #14532d; color: #86efac; }
+    .status-line { font-size: .8rem; color: var(--muted); margin: 6px 2px 0; min-height: 1em; }
+    .status-line.err { color: #fca5a5; }
+    .status-line.ok  { color: #86efac; }
+
+    /* Collapsible add form */
+    .add-toggle { width: 100%; margin: 14px 0 0; padding: 11px; border: 1px dashed var(--line);
+                  border-radius: 10px; background: transparent; color: #cbd5e1;
+                  font-size: .95rem; cursor: pointer; }
+    .add-toggle:hover { background: var(--card2); }
+    .add-form { border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+                margin-top: 8px; background: var(--card); }
     .row { display: flex; gap: 8px; align-items: end; }
     .row .grow { flex: 1; }
-    .row .w-th { width: 78px; }
-    .status { padding: 9px 12px; border-radius: 9px; margin: 12px 0 0; font-size: .9rem; }
-    .ok  { background: #06281a; color: #86efac; }
-    .err { background: #2a0d0d; color: #fca5a5; }
-    .info{ background: #06223a; color: #93c5fd; }
-    ul { list-style: none; padding: 0; margin: 10px 0 0; }
-    li { display: flex; align-items: center; gap: 10px; padding: 12px 4px;
-         border-top: 1px solid var(--line); }
-    li:first-child { border-top: 0; }
-    .sym { font-weight: 700; }
-    .sub { font-size: .78rem; color: var(--muted); }
-    .price { margin-left: auto; text-align: right; white-space: nowrap; }
-    .pct-up { color: var(--green); } .pct-down { color: var(--red); }
-    .thin { display:flex; align-items:center; gap:6px; }
-    .thin input { width: 62px; text-align: right; padding: 6px 8px; }
-    .empty { color: var(--muted); padding: 14px 4px; }
+    .row .w-th { width: 84px; }
+    label { font-size: .72rem; color: var(--muted); display: block; margin: 0 0 3px; }
+    input { font-size: .95rem; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--line);
+            background: #0b1220; color: #e5e7eb; width: 100%; }
+    button.primary { font-size: .95rem; padding: 10px 16px; border: 0; border-radius: 9px;
+                     background: var(--blue); color: #fff; cursor: pointer; font-weight: 600; }
+    .hint { font-size: .76rem; color: var(--muted); margin-top: 8px; }
     code { background: #0b1220; border: 1px solid var(--line); padding: 1px 5px; border-radius: 5px; }
+
+    /* Watchlist */
+    h2 { font-size: .78rem; color: var(--muted); text-transform: uppercase;
+         letter-spacing: .06em; margin: 22px 2px 8px; }
+    ul { list-style: none; padding: 0; margin: 0; }
+    .item { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px;
+            background: var(--card); overflow: hidden; }
+    .head { display: flex; align-items: center; gap: 10px; padding: 12px; cursor: pointer; }
+    .head:hover { background: var(--card2); }
+    .chev { color: var(--muted); transition: transform .15s; font-size: .8rem; width: 12px; }
+    .item.open .chev { transform: rotate(90deg); }
+    .idcol { flex: 1; min-width: 0; }
+    .sym { font-weight: 700; }
+    .sub { font-size: .76rem; color: var(--muted); }
+    .pricecol { text-align: right; white-space: nowrap; }
+    .px { font-weight: 600; }
+    .chg { font-size: .8rem; }
+    .pct-up { color: var(--green); } .pct-down { color: var(--red); }
+
+    .meta { display: flex; align-items: center; gap: 8px; padding: 0 12px 12px;
+            border-top: 1px solid var(--line); padding-top: 10px; }
+    .athi { font-size: .8rem; flex: 1; }
+    .athi.high { color: var(--amber); }
+    .athi.down { color: var(--muted); }
+    .ctrls { display: flex; align-items: center; gap: 6px; }
+    .ctrls input { width: 66px; text-align: right; padding: 6px 8px; }
+    .ctrls .unit { font-size: .72rem; color: var(--muted); }
+    .del { background: transparent; color: var(--red); border: 1px solid var(--line);
+           border-radius: 8px; padding: 6px 9px; cursor: pointer; }
+
+    .detail { padding: 4px 12px 14px; }
+    .spark { width: 100%; height: 90px; display: block; }
+    .range { display: flex; justify-content: space-between; font-size: .7rem; color: var(--muted); }
+    .stats { display: flex; gap: 18px; margin-top: 10px; font-size: .82rem; flex-wrap: wrap; }
+    .stats b { color: #e5e7eb; }
+    .empty { color: var(--muted); padding: 16px 4px; text-align: center; }
   </style>
 </head>
 <body>
-  <h1>📉 Stock Drop Alerts</h1>
-  <div class="sub">Get pushed when a stock or fund drops past your threshold (vs. previous close).</div>
-
-  <!-- NOTIFICATIONS -->
-  <h2>Notifications</h2>
-  <div class="card">
-    <div class="row" style="gap:10px;">
-      <button id="install" class="violet" style="display:none;">📲 Install app</button>
-      <button id="enable">🔔 Enable notifications on this device</button>
-    </div>
-    <div id="status" class="status info">Tap “Enable notifications” to receive alerts here.</div>
+  <div class="topbar">
+    <h1>📉 Drop Alerts</h1>
+    <button id="enable" class="bell" title="Enable push notifications on this device">🔔 Enable</button>
   </div>
+  <div id="status" class="status-line"></div>
 
-  <!-- ADD -->
-  <h2>Add a stock / fund</h2>
-  <div class="card">
+  <button id="addToggle" class="add-toggle">＋ Add a stock / fund</button>
+  <div id="addForm" class="add-form" hidden>
     <div class="row">
       <div class="grow">
         <label for="sym">Ticker symbol</label>
@@ -82,22 +107,19 @@
         <label for="nm">Name (optional)</label>
         <input id="nm" placeholder="e.g. Apple" />
       </div>
-      <button id="add">Add</button>
+      <button id="add" class="primary">Add</button>
     </div>
-    <div class="sub" style="margin-top:8px;">
-      Symbols use Yahoo Finance format. Find yours at
-      <code>finance.yahoo.com</code>. NSE ends in <code>.NS</code>, BSE <code>.BO</code>,
-      London <code>.L</code>.
+    <div class="hint">
+      Yahoo Finance symbols — stocks, ETFs &amp; mutual funds. NSE ends in
+      <code>.NS</code>, BSE <code>.BO</code>, London <code>.L</code>; US mutual
+      funds look like <code>VFINX</code>. Find yours at <code>finance.yahoo.com</code>.
     </div>
   </div>
 
-  <!-- LIST -->
   <h2>My watchlist</h2>
-  <div class="card">
-    <ul id="list"><li class="empty">Loading…</li></ul>
-  </div>
+  <ul id="list"><li class="empty">Loading…</li></ul>
 
-  <!-- Firebase SDK (push only) + Supabase (data) -->
+  <!-- Firebase (push) + Supabase (data) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -106,73 +128,64 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const statusEl = $("status");
-    const setStatus = (m, c) => { statusEl.textContent = m; statusEl.className = "status " + c; };
+    const setStatus = (m, c = "") => { statusEl.textContent = m || ""; statusEl.className = "status-line " + c; };
 
     firebase.initializeApp(self.firebaseConfig);
     const messaging = firebase.messaging();
     const sb = window.supabase.createClient(self.supabaseUrl, self.supabaseAnonKey);
 
-    // ---- Service worker (needed for install + background push) ----
+    // ---- Service worker (install + background push) ----
     let swReg = null;
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("firebase-messaging-sw.js")
-        .then((r) => (swReg = r))
-        .catch((e) => console.error("SW register failed", e));
+        .then((r) => (swReg = r)).catch((e) => console.error("SW register failed", e));
     }
 
-    // ---- Install button ----
-    let deferredPrompt = null;
-    window.addEventListener("beforeinstallprompt", (e) => {
-      e.preventDefault(); deferredPrompt = e; $("install").style.display = "inline-block";
-    });
-    $("install").addEventListener("click", async () => {
-      if (!deferredPrompt) return;
-      deferredPrompt.prompt(); await deferredPrompt.userChoice;
-      deferredPrompt = null; $("install").style.display = "none";
-    });
-    window.addEventListener("appinstalled", () => { $("install").style.display = "none"; });
-
-    // ---- Enable notifications: register token straight into Firestore ----
+    // ---- Notifications: compact bell ----
     $("enable").addEventListener("click", async () => {
       try {
         const reg = swReg || await navigator.serviceWorker.register("firebase-messaging-sw.js");
-        if (await Notification.requestPermission() !== "granted") {
-          return setStatus("Notification permission denied.", "err");
-        }
+        if (await Notification.requestPermission() !== "granted")
+          return setStatus("Notifications blocked in browser settings.", "err");
         const token = await messaging.getToken({ vapidKey: self.vapidKey, serviceWorkerRegistration: reg });
-        if (!token) return setStatus("No token returned — check firebase-config.js / VAPID key.", "err");
+        if (!token) return setStatus("No token — check config / VAPID key.", "err");
         const { error } = await sb.from("devices").upsert({ token, ua: navigator.userAgent });
         if (error) throw error;
-        setStatus("✅ This device is registered. You'll get alerts here.", "ok");
+        const b = $("enable"); b.textContent = "🔔 On"; b.classList.add("on");
+        setStatus("This device will receive alerts.", "ok");
       } catch (e) { setStatus("Error: " + e.message, "err"); console.error(e); }
     });
-
     messaging.onMessage((p) => {
       const n = p.notification || {};
       new Notification(n.title || "Stock alert", { body: n.body || "", icon: "icon-192.png" });
     });
 
-    // ---- Watchlist CRUD (Supabase) ----
+    // ---- Add form collapse ----
+    $("addToggle").addEventListener("click", () => {
+      const f = $("addForm"), open = f.hasAttribute("hidden");
+      if (open) { f.removeAttribute("hidden"); $("addToggle").textContent = "－ Close"; $("sym").focus(); }
+      else { f.setAttribute("hidden", ""); $("addToggle").textContent = "＋ Add a stock / fund"; }
+    });
+
+    // ---- Watchlist CRUD ----
     const symId = (s) => s.trim().toUpperCase().replace(/[\/#?\[\]]/g, "_");
 
     $("add").addEventListener("click", async () => {
       const raw = $("sym").value.trim().toUpperCase();
       if (!raw) return;
       const th = parseFloat($("th").value);
-      const row = {
-        id: symId(raw),
-        symbol: raw,
-        name: $("nm").value.trim() || raw,
-        threshold_pct: isNaN(th) ? null : th
-      };
+      const row = { id: symId(raw), symbol: raw, name: $("nm").value.trim() || raw,
+                    threshold_pct: isNaN(th) ? null : th };
       const { error } = await sb.from("watchlist").upsert(row);
       if (error) return alert("Could not add: " + error.message);
       $("sym").value = ""; $("nm").value = ""; $("th").value = "";
+      $("addForm").setAttribute("hidden", ""); $("addToggle").textContent = "＋ Add a stock / fund";
       load();
     });
 
     async function removeStock(id, name) {
       if (!confirm("Remove " + name + "?")) return;
+      expanded.delete(id);
       await sb.from("watchlist").delete().eq("id", id);
       load();
     }
@@ -181,42 +194,87 @@
       await sb.from("watchlist").update({ threshold_pct: isNaN(th) ? null : th }).eq("id", id);
     }
 
-    // ---- Render ----
-    function priceHtml(d) {
-      if (d.last_price == null) return '<span class="sub">waiting for monitor…</span>';
-      const pct = d.last_pct ?? 0;
-      const cls = pct < 0 ? "pct-down" : "pct-up";
-      const cur = d.currency ? " " + d.currency : "";
-      return `<div>${Number(d.last_price).toFixed(2)}${cur}</div>
-              <div class="sub ${cls}">${pct >= 0 ? "+" : ""}${Number(pct).toFixed(2)}%</div>`;
+    // ---- Rendering ----
+    const expanded = new Set();
+    let currentRows = [];
+
+    function fmt(n) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+
+    function chartSVG(history) {
+      if (!history || history.length < 2) return '<div class="sub">Chart data builds on the next check…</div>';
+      const w = 320, h = 90, pad = 5;
+      const cs = history.map((p) => p.c);
+      const min = Math.min(...cs), max = Math.max(...cs), range = (max - min) || 1;
+      const step = (w - 2 * pad) / (history.length - 1);
+      const pts = history.map((p, i) =>
+        `${(pad + i * step).toFixed(1)},${(pad + (h - 2 * pad) * (1 - (p.c - min) / range)).toFixed(1)}`
+      ).join(" ");
+      const up = cs[cs.length - 1] >= cs[0];
+      const color = up ? "var(--green)" : "var(--red)";
+      return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <polyline fill="none" stroke="${color}" stroke-width="2" points="${pts}"/></svg>`;
+    }
+
+    function athHtml(d) {
+      if (d.ath_pct == null) return '<span class="athi down">high: pending…</span>';
+      if (d.ath_pct >= -0.05) return '<span class="athi high">🏔 At all-time high</span>';
+      return `<span class="athi down">▼ ${Math.abs(d.ath_pct).toFixed(1)}% from all-time high</span>`;
+    }
+
+    function detailHtml(d) {
+      const h = d.history || [];
+      const first = h.length ? h[0].t.slice(0, 4) : "";
+      const last = h.length ? h[h.length - 1].t.slice(0, 4) : "";
+      const cagr = d.cagr == null ? "—" : `${d.cagr >= 0 ? "+" : ""}${d.cagr.toFixed(1)}%`;
+      const ath = d.ath == null ? "—" : fmt(d.ath) + (d.currency ? " " + d.currency : "");
+      return `${chartSVG(h)}
+        <div class="range"><span>${first}</span><span>${last}</span></div>
+        <div class="stats">
+          <span>~10Y CAGR <b>${cagr}</b></span>
+          <span>All-time high <b>${ath}</b></span>
+        </div>`;
     }
 
     function renderList(rows) {
       const ul = $("list");
-      if (!rows || !rows.length) {
-        ul.innerHTML = '<li class="empty">No stocks yet — add one above.</li>'; return;
-      }
+      if (!rows || !rows.length) { ul.innerHTML = '<li class="empty">No stocks yet — tap “Add a stock / fund”.</li>'; return; }
       ul.innerHTML = "";
       rows.forEach((d) => {
         const li = document.createElement("li");
+        li.className = "item" + (expanded.has(d.id) ? " open" : "");
+
+        const dailyPct = d.last_pct ?? null;
+        const price = d.last_price == null ? '<span class="sub">waiting…</span>'
+          : `<div class="px">${fmt(d.last_price)}${d.currency ? " " + d.currency : ""}</div>
+             <div class="chg ${dailyPct < 0 ? "pct-down" : "pct-up"}">${dailyPct >= 0 ? "+" : ""}${(dailyPct ?? 0).toFixed(2)}% today</div>`;
+
         li.innerHTML = `
-          <div>
-            <div class="sym">${d.name || d.symbol}</div>
-            <div class="sub">${d.symbol} · alert at −${(d.threshold_pct ?? "default")}%</div>
+          <div class="head">
+            <span class="chev">▶</span>
+            <div class="idcol">
+              <div class="sym">${d.name || d.symbol}</div>
+              <div class="sub">${d.symbol} · alert at −${d.threshold_pct ?? "default"}%</div>
+            </div>
+            <div class="pricecol">${price}</div>
           </div>
-          <div class="price">${priceHtml(d)}</div>`;
-        const controls = document.createElement("div");
-        controls.className = "thin";
-        const thIn = document.createElement("input");
-        thIn.type = "number"; thIn.step = "0.5"; thIn.min = "0";
-        thIn.value = d.threshold_pct ?? ""; thIn.title = "Drop % threshold";
-        thIn.placeholder = "def";
+          <div class="meta">
+            ${athHtml(d)}
+            <span class="ctrls">
+              <input type="number" step="0.5" min="0" value="${d.threshold_pct ?? ""}" placeholder="def" title="Drop % threshold">
+              <span class="unit">%</span>
+              <button class="del" title="Remove">✕</button>
+            </span>
+          </div>
+          ${expanded.has(d.id) ? `<div class="detail">${detailHtml(d)}</div>` : ""}`;
+
+        li.querySelector(".head").addEventListener("click", () => {
+          if (expanded.has(d.id)) expanded.delete(d.id); else expanded.add(d.id);
+          renderList(currentRows);
+        });
+        const thIn = li.querySelector(".ctrls input");
         thIn.addEventListener("change", () => saveThreshold(d.id, thIn.value));
-        const del = document.createElement("button");
-        del.className = "ghost"; del.textContent = "✕";
-        del.addEventListener("click", () => removeStock(d.id, d.name || d.symbol));
-        controls.append(thIn, del);
-        li.append(controls);
+        thIn.addEventListener("click", (e) => e.stopPropagation());
+        li.querySelector(".del").addEventListener("click", (e) => { e.stopPropagation(); removeStock(d.id, d.name || d.symbol); });
         ul.append(li);
       });
     }
@@ -228,13 +286,12 @@
           Check supabase-config.js and that you ran supabase-schema.sql.</li>`;
         return;
       }
-      renderList(data);
+      currentRows = data;
+      renderList(currentRows);
     }
 
-    // Realtime: reload whenever the watchlist changes (or monitor writes prices).
-    sb.channel("wl")
-      .on("postgres_changes", { event: "*", schema: "public", table: "watchlist" }, load)
-      .subscribe();
+    sb.channel("wl").on("postgres_changes",
+      { event: "*", schema: "public", table: "watchlist" }, load).subscribe();
     load();
   </script>
 </body>
