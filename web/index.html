@@ -144,6 +144,21 @@
     const statusEl = $("status");
     const setStatus = (m, c = "") => { statusEl.textContent = m || ""; statusEl.className = "status-line " + c; };
 
+    // Never show a blank page — surface the real error on screen.
+    function fatal(msg) {
+      const el = $("list") || document.body;
+      el.innerHTML = `<li class="empty" style="color:#fca5a5">⚠️ ${String(msg)}<br><br>
+        <button class="primary" onclick="location.reload(true)">Reload</button></li>`;
+    }
+    window.addEventListener("error", (e) => fatal((e && e.message) || "Script error"));
+    window.addEventListener("unhandledrejection", (e) => fatal((e.reason && e.reason.message) || e.reason || "Load error"));
+
+    // A CDN library failing to load would otherwise abort everything silently.
+    if (typeof firebase === "undefined" || typeof window.supabase === "undefined") {
+      fatal("Couldn't load app libraries (network/CDN). Tap Reload.");
+      throw new Error("libraries failed to load");
+    }
+
     firebase.initializeApp(self.firebaseConfig);
     const messaging = firebase.messaging();
     const sb = window.supabase.createClient(self.supabaseUrl, self.supabaseAnonKey);
