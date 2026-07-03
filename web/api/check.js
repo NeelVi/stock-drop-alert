@@ -117,6 +117,21 @@ module.exports = async (req, res) => {
     if (CHECK_KEY && req.query.key !== CHECK_KEY) return res.status(403).json({ error: "forbidden" });
     if (!SB_URL || !SB_KEY) return res.status(500).json({ error: "supabase env not configured" });
 
+    // Diagnostic: ?test=1 sends a test push and returns the full FCM result.
+    if (req.query.test === "1") {
+      const toks = (await sbGet("devices?select=token")).map((d) => d.token).filter(Boolean);
+      if (!toks.length) return res.status(200).json({ error: "no devices registered" });
+      const r = await messaging().sendEachForMulticast({
+        tokens: toks,
+        notification: { title: "Test ✅", body: "Push from the Vercel check endpoint." },
+        webpush: { notification: { title: "Test ✅", body: "Push from the Vercel check endpoint.", icon: "icon-192.png" } },
+      });
+      return res.status(200).json({
+        successCount: r.successCount, failureCount: r.failureCount,
+        responses: r.responses.map((x) => ({ success: x.success, code: x.error?.code || null, message: x.error?.message || null })),
+      });
+    }
+
     const [wl, devs] = await Promise.all([sbGet("watchlist?select=*"), sbGet("devices?select=token")]);
     const tokens = devs.map((d) => d.token).filter(Boolean);
     const today = new Date().toISOString().slice(0, 10);
@@ -163,13 +178,13 @@ module.exports = async (req, res) => {
             body = `${label} at ${q.last.toFixed(2)}${cur} (${change.toFixed(2)}% vs prev close).`;
             fields = ["last_alert_date"];
           }
-          await messaging().sendEachForMulticast({
+          const sent = await messaging().sendEachForMulticast({
             tokens, notification: { title, body },
             webpush: { notification: { title, body, icon: "icon-192.png" } },
           });
           for (const f of fields) patch[f] = today;
           patch.last_alert_pct = round(change, 2);
-          results.push({ s: item.symbol, alert: kind, change: round(change, 2) });
+          results.push({ s: item.symbol, alert: kind, change: round(change, 2), sent: sent.successCount, failed: sent.failureCount });
         } else {
           results.push({ s: item.symbol, change: round(change, 2) });
         }
