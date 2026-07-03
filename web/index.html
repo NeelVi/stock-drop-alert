@@ -49,7 +49,10 @@
     /* Watchlist */
     h2 { font-size: .78rem; color: var(--muted); text-transform: uppercase;
          letter-spacing: .06em; margin: 22px 2px 8px; }
-    .search { width: 100%; margin-bottom: 10px; }
+    .controls { display: flex; gap: 8px; margin-bottom: 10px; }
+    .controls .search { flex: 1; }
+    .controls select { border: 1px solid var(--line); background: #0b1220; color: #e5e7eb;
+                       border-radius: 9px; padding: 0 8px; font-size: .82rem; max-width: 46%; }
     .item.dragging { opacity: .6; }
     .sortable-ghost { opacity: .3; }
     ul { list-style: none; padding: 0; margin: 0; }
@@ -74,7 +77,8 @@
             border-top: 1px solid var(--line); padding-top: 10px; }
     .athi { font-size: .8rem; flex: 1; }
     .athi.high { color: var(--amber); }
-    .athi.down { color: var(--muted); }
+    .athi.down { color: var(--red); font-weight: 600; }
+    .athi.muted { color: var(--muted); }
     .ctrls { display: flex; align-items: center; gap: 6px; }
     .ctrls input { width: 66px; text-align: right; padding: 6px 8px; }
     .ctrls .unit { font-size: .72rem; color: var(--muted); }
@@ -129,7 +133,15 @@
   </div>
 
   <h2>My watchlist</h2>
-  <input id="search" class="search" type="search" placeholder="🔍 Search name or symbol…" autocomplete="off" />
+  <div class="controls">
+    <input id="search" class="search" type="search" placeholder="🔍 Search…" autocomplete="off" />
+    <select id="sort" title="Sort watchlist">
+      <option value="ath">▼ Most below ATH</option>
+      <option value="today">▼ Biggest drop today</option>
+      <option value="custom">↕ Custom (drag)</option>
+      <option value="name">A–Z</option>
+    </select>
+  </div>
   <ul id="list"><li class="empty">Loading…</li></ul>
 
   <!-- Firebase (push) + Supabase (data) -->
@@ -235,18 +247,34 @@
     const expanded = new Set();
     let currentRows = [];
 
-    // Card order persists in localStorage (per device — no schema change).
-    const ORDER_KEY = "wlOrder";
-    function applyOrder(rows) {
+    // Sort: computed modes + a manual drag order (persisted per device).
+    const ORDER_KEY = "wlOrder", SORT_KEY = "wlSort";
+    const getSort = () => localStorage.getItem(SORT_KEY) || "ath";
+    let rawRows = [];
+
+    function applySort(rows) {
+      const mode = getSort();
+      const r = [...rows];
+      if (mode === "ath")    // most below all-time high first (biggest drawdown)
+        return r.sort((a, b) => (a.ath_pct ?? 1) - (b.ath_pct ?? 1));
+      if (mode === "today")  // biggest drop today first
+        return r.sort((a, b) => (a.last_pct ?? 1e9) - (b.last_pct ?? 1e9));
+      if (mode === "name")
+        return r.sort((a, b) => (a.name || a.symbol).localeCompare(b.name || b.symbol));
+      // custom: saved drag order, then alphabetical for anything new
       let order = [];
       try { order = JSON.parse(localStorage.getItem(ORDER_KEY) || "[]"); } catch (_) {}
       const rank = (id) => { const i = order.indexOf(id); return i < 0 ? 1e9 : i; };
-      return [...rows].sort((a, b) => rank(a.id) - rank(b.id) || (a.symbol < b.symbol ? -1 : 1));
+      return r.sort((a, b) => rank(a.id) - rank(b.id) || (a.symbol < b.symbol ? -1 : 1));
     }
+    function resort() { currentRows = applySort(rawRows); renderList(currentRows); }
+
     function saveOrder() {
       const ids = [...$("list").children].map((li) => li.dataset.id).filter(Boolean);
       localStorage.setItem(ORDER_KEY, JSON.stringify(ids));
-      currentRows = applyOrder(currentRows);
+      localStorage.setItem(SORT_KEY, "custom");
+      $("sort").value = "custom";
+      resort();
     }
 
     let sortable = null;
@@ -259,6 +287,8 @@
     }
 
     $("search").addEventListener("input", () => renderList(currentRows));
+    $("sort").value = getSort();
+    $("sort").addEventListener("change", () => { localStorage.setItem(SORT_KEY, $("sort").value); resort(); });
 
     function fmt(n) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
 
@@ -279,7 +309,7 @@
 
     function athHtml(d) {
       if (d.ath_pct == null)
-        return `<span class="athi down">${d.history_date ? "high: n/a" : "high: pending…"}</span>`;
+        return `<span class="athi muted">${d.history_date ? "high: n/a" : "high: pending…"}</span>`;
       if (d.ath_pct >= -0.05) return '<span class="athi high">🏔 At all-time high</span>';
       return `<span class="athi down">−${Math.abs(d.ath_pct).toFixed(1)}% from all-time high</span>`;
     }
@@ -310,7 +340,8 @@
     function renderList(rows) {
       const ul = $("list");
       const q = $("search").value.trim().toLowerCase();
-      if (sortable) sortable.option("disabled", !!q);  // don't reorder a filtered view
+      // drag only in custom sort mode and when not filtering
+      if (sortable) sortable.option("disabled", !!q || getSort() !== "custom");
       const list = q
         ? (rows || []).filter((d) => (d.name || "").toLowerCase().includes(q) || (d.symbol || "").toLowerCase().includes(q))
         : (rows || []);
@@ -371,9 +402,9 @@
           Check supabase-config.js and that you ran supabase-schema.sql.</li>`;
         return;
       }
-      currentRows = applyOrder(data);
-      renderList(currentRows);
+      rawRows = data;
       initSortable();
+      resort();
     }
 
     sb.channel("wl").on("postgres_changes",
