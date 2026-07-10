@@ -35,6 +35,17 @@ async function sbPatch(id, body) {
     method: "PATCH", headers: sbHeaders({ Prefer: "return=minimal" }), body: JSON.stringify(body),
   });
 }
+// Small key/value store for global (non-per-stock) state, e.g. market-alert dedup.
+async function getState(key) {
+  const r = await sbGet(`app_state?key=eq.${encodeURIComponent(key)}&select=value`);
+  return r[0]?.value ?? null;
+}
+async function setState(key, value) {
+  await fetch(`${SB_URL}/rest/v1/app_state`, {
+    method: "POST", headers: sbHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify({ key, value }),
+  });
+}
 
 // --- Yahoo ---
 async function yahoo(path) {
@@ -194,7 +205,35 @@ module.exports = async (req, res) => {
       }
     }));
 
-    return res.status(200).json({ ok: true, checked: wl.length, devices: tokens.length, results });
+    // --- Market-wide "buying opportunity" alert (breadth of today's drops) ---
+    // Fires when a large share of the names checked this run are down together —
+    // a broad selloff, not one stock stumbling. Once per day. ?dry=1 skips send.
+    const MKT_DROP = 3, MKT_MIN_DOWN = 3, MKT_MIN_CHECKED = 4, MKT_FRACTION = 0.4;
+    const changes = results.filter((r) => typeof r.change === "number");
+    const downBig = changes.filter((r) => r.change <= -MKT_DROP).sort((a, b) => a.change - b.change);
+    const hit = changes.length >= MKT_MIN_CHECKED && downBig.length >= MKT_MIN_DOWN
+      && downBig.length / changes.length >= MKT_FRACTION;
+    const market = { checked: changes.length, downBig: downBig.length, hit, sent: false };
+    if (hit && tokens.length && req.query.dry !== "1") {
+      let stateOk = true, alreadyToday = false;
+      try { alreadyToday = (await getState("market_alert_date")) === today; }
+      catch (_) { stateOk = false; }  // app_state table not created yet — skip safely
+      if (stateOk && !alreadyToday) {
+        const top = downBig.slice(0, 5).map((r) => `${r.s} ${r.change.toFixed(1)}%`).join(", ");
+        const title = "🟢 Buying opportunity — broad market dip";
+        const body = `${downBig.length} of ${changes.length} tracked names are down today. Biggest: ${top}.`;
+        const s = await messaging().sendEachForMulticast({
+          tokens, notification: { title, body },
+          webpush: { notification: { title, body, icon: "icon-192.png" } },
+        });
+        try { await setState("market_alert_date", today); } catch (_) {}
+        market.sent = s.successCount; market.failed = s.failureCount;
+      } else {
+        market.dedup = alreadyToday; market.stateOk = stateOk;
+      }
+    }
+
+    return res.status(200).json({ ok: true, checked: wl.length, devices: tokens.length, market, results });
   } catch (e) {
     return res.status(500).json({ error: String(e.message || e) });
   }

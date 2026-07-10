@@ -42,18 +42,27 @@ create table if not exists devices (
   created_at timestamptz default now()
 );
 
+-- Small key/value store for global state (e.g. market-alert dedup date).
+create table if not exists app_state (
+  key   text primary key,
+  value text
+);
+
 -- Realtime so the app updates instantly when prices/watchlist change.
 alter publication supabase_realtime add table watchlist;
 
 -- Row Level Security -----------------------------------------------------------
 alter table watchlist enable row level security;
 alter table devices   enable row level security;
+alter table app_state enable row level security;
 
 -- Personal app: allow the anon (public) key full access to just these tables.
---   WARNING: anyone who has your app's URL could read/edit these two tables.
+--   WARNING: anyone who has your app's URL could read/edit these tables.
 --   That's usually fine for a private stock watchlist. To lock it down, add
 --   Supabase Auth and replace `true` with `auth.uid() is not null`.
 create policy "anon all watchlist" on watchlist
   for all to anon using (true) with check (true);
 create policy "anon all devices" on devices
+  for all to anon using (true) with check (true);
+create policy "anon all app_state" on app_state
   for all to anon using (true) with check (true);
