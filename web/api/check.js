@@ -205,15 +205,31 @@ module.exports = async (req, res) => {
       }
     }));
 
-    // --- Market-wide "buying opportunity" alert (breadth of today's drops) ---
-    // Fires when a large share of the names checked this run are down together —
-    // a broad selloff, not one stock stumbling. Once per day. ?dry=1 skips send.
-    const MKT_DROP = 3, MKT_MIN_DOWN = 3, MKT_MIN_CHECKED = 4, MKT_FRACTION = 0.4;
+    // --- Market-wide "buying opportunity" alert ---
+    // Fires (once/day) on a broad selloff: either a large share of names checked
+    // are down together (breadth), OR a benchmark index is down hard. ?dry=1 skips.
+    const MKT_DROP = 3, MKT_MIN_DOWN = 3, MKT_MIN_CHECKED = 4, MKT_FRACTION = 0.4, INDEX_DROP = 2.5;
     const changes = results.filter((r) => typeof r.change === "number");
     const downBig = changes.filter((r) => r.change <= -MKT_DROP).sort((a, b) => a.change - b.change);
-    const hit = changes.length >= MKT_MIN_CHECKED && downBig.length >= MKT_MIN_DOWN
+    const breadth = changes.length >= MKT_MIN_CHECKED && downBig.length >= MKT_MIN_DOWN
       && downBig.length / changes.length >= MKT_FRACTION;
-    const market = { checked: changes.length, downBig: downBig.length, hit, sent: false };
+
+    // Benchmark index: S&P 500 during US hours, Nifty 50 during NSE hours.
+    let index = null;
+    try {
+      const benches = [];
+      if (isMarketOpen("AAPL", "EQUITY")) benches.push(["^GSPC", "S&P 500"]);
+      if (isMarketOpen("RELIANCE.NS", "EQUITY")) benches.push(["^NSEI", "Nifty 50"]);
+      for (const [sym, label] of benches) {
+        const q = await fetchDaily(sym);
+        if (!q) continue;
+        const chg = q.prev ? ((q.last - q.prev) / q.prev) * 100 : 0;
+        if (chg <= -INDEX_DROP) { index = { label, chg: round(chg, 2) }; break; }
+      }
+    } catch (_) {}
+
+    const hit = breadth || !!index;
+    const market = { checked: changes.length, downBig: downBig.length, breadth, index, hit, sent: false };
     if (hit && tokens.length && req.query.dry !== "1") {
       let stateOk = true, alreadyToday = false;
       try { alreadyToday = (await getState("market_alert_date")) === today; }
@@ -221,7 +237,8 @@ module.exports = async (req, res) => {
       if (stateOk && !alreadyToday) {
         const top = downBig.slice(0, 5).map((r) => `${r.s} ${r.change.toFixed(1)}%`).join(", ");
         const title = "🟢 Buying opportunity — broad market dip";
-        const body = `${downBig.length} of ${changes.length} tracked names are down today. Biggest: ${top}.`;
+        const body = (index ? `${index.label} down ${Math.abs(index.chg)}%. ` : "")
+          + (downBig.length ? `${downBig.length} of ${changes.length} tracked names down${top ? ` (${top}).` : "."}` : "Broad market weakness.");
         const s = await messaging().sendEachForMulticast({
           tokens, notification: { title, body },
           webpush: { notification: { title, body, icon: "icon-192.png" } },
