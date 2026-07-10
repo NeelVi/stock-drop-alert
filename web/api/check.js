@@ -143,6 +143,19 @@ module.exports = async (req, res) => {
       });
     }
 
+    // Diagnostic: ?markettest=1 fires a sample "buying opportunity" push.
+    if (req.query.markettest === "1") {
+      const toks = (await sbGet("devices?select=token")).map((d) => d.token).filter(Boolean);
+      if (!toks.length) return res.status(200).json({ error: "no devices registered" });
+      const title = "🟢 Buying opportunity — broad market dip";
+      const body = "Sample alert: S&P 500 down 2.8%. 5 of 12 tracked names down (TSLA -7.5%, MU -5.5%).";
+      const r = await messaging().sendEachForMulticast({
+        tokens: toks, notification: { title, body },
+        webpush: { notification: { title, body, icon: "icon-192.png" } },
+      });
+      return res.status(200).json({ successCount: r.successCount, failureCount: r.failureCount });
+    }
+
     const [wl, devs] = await Promise.all([sbGet("watchlist?select=*"), sbGet("devices?select=token")]);
     const tokens = devs.map((d) => d.token).filter(Boolean);
     const today = new Date().toISOString().slice(0, 10);
